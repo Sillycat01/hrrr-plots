@@ -1,0 +1,17 @@
+name: Cleanup leftover GRIBs
+on:
+  workflow_dispatch:
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove temp GRIB / idx files
+        run: |
+          find . -maxdepth 1 \( -name 'temp_*.grib2' -o -name 'temp_*.grib2*.idx' -o -name '*.grib2' -o -name '*.grib2*.idx' \) -delete
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+          git add -A
+          git diff --staged --quiet || git commit -m "Remove leftover temp GRIB and cfgrib .idx files"
+          git push--force
