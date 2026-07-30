@@ -22,6 +22,9 @@ jobs:
   process-hrrr:
     runs-on: ubuntu-latest
     timeout-minutes: 540
+    env:                      
+      GITHUB_REPO: "Sillycat01/hrrr-plots"  
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
 
     steps:
       - name: Checkout repository
