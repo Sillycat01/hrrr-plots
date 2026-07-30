@@ -1,0 +1,113 @@
+# GitHub Actions Workflow for HRRR Processor
+name: HRRR Data Processor
+
+on:
+  schedule:
+    - cron: '0 1 * * *'   # 01Z -> process 00Z run
+    - cron: '0 7 * * *'   # 07Z -> process 06Z run
+    - cron: '0 13 * * *'  # 13Z -> process 12Z run
+    - cron: '0 19 * * *'  # 19Z -> process 18Z run
+  workflow_dispatch:
+    inputs:
+      run_hour:
+        description: 'HRRR run hour (00, 06, 12, 18)'
+        required: false
+        default: ''
+      forecast_hours:
+        description: 'Forecast hours range (e.g., 0-48)'
+        required: false
+        default: '0-48'
+
+jobs:
+  process-hrrr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 540
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r scripts/requirements.txt
+
+      - name: Install system dependencies (eccodes)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libeccodes-dev
+
+      - name: Configure git (global for all git commands)
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+
+      - name: Determine run hour (just the hour number)
+        id: run_hour
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # 自动触发：从 cron 字符串中提取计划小时
+            CRON="${{ github.event.schedule }}"
+            CRON_HOUR=$(echo "$CRON" | awk '{print $2}')
+            case "$CRON_HOUR" in
+              1)  echo "hour=00" ;;
+              7)  echo "hour=06" ;;
+              13) echo "hour=12" ;;
+              19) echo "hour=18" ;;
+              *)  echo "hour=00" ;;
+            esac >> $GITHUB_OUTPUT
+          else
+            # 手动触发：优先使用用户输入，否则 fallback 到当前小时（保持原行为）
+            if [ -n "${{ github.event.inputs.run_hour }}" ]; then
+              echo "hour=${{ github.event.inputs.run_hour }}" >> $GITHUB_OUTPUT
+            else
+              current_hour=$(date -u +%H)
+              case $current_hour in
+                01) echo "hour=00" ;;
+                07) echo "hour=06" ;;
+                13) echo "hour=12" ;;
+                19) echo "hour=18" ;;
+                *)  echo "hour=00" ;;
+              esac >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Build full --run argument (YYYYMMDD_HHz)
+        id: run_arg
+        run: |
+          date_str=$(date -u +%Y%m%d)
+          hour="${{ steps.run_hour.outputs.hour }}"
+          echo "full_arg=${date_str}_${hour}z" >> $GITHUB_OUTPUT
+
+      - name: Process HRRR data
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/hrrr_processor.py \
+            --run ${{ steps.run_arg.outputs.full_arg }} \
+            --forecast-hours ${{ github.event.inputs.forecast_hours || '0-48' }} \
+            --output-dir . \
+            --cleanup
+          
+      - name: Clean up GRIB and idx files before commit
+        run: |
+          find runs/ -type f \( -name "*.grib2" -o -name "*.grib2*.idx" -o -name "*.idx" \) -delete
+
+      - name: Commit and push any remaining changes
+        run: |
+          git add runs/
+          git diff --staged --quiet || git commit -m "Update HRRR plots for ${{ steps.run_hour.outputs.hour }}Z run"
+          git push
+
+      - name: Cleanup old runs (additional safety)
+        run: |
+          find runs/ -type d -mmin +36000 -exec rm -rf {} + 2>/dev/null || true
+          git add -A
+          git diff --staged --quiet || git commit -m "Cleanup old runs"
+          git push
