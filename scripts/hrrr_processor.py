@@ -38,8 +38,7 @@ import matplotlib.colors as mcolors
 warnings.filterwarnings("ignore")
 
 # ==================== CONFIGURATION ====================
-GITHUB_REPO = os.environ.get("GITHUB_REPO", "Sillycat01/hrrr-plots")
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "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")
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 
 # Products to generate
 PRODUCTS = [
